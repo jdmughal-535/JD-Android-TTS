@@ -28,10 +28,13 @@ No account, no API key, no internet needed after the first model download.
    The first Play generates the speech; later Plays replay it from a
    cache (no regeneration). A mini audio player appears with pause,
    seek bar and time, plus a small download icon that saves the cached
-   audio to the phone's Downloads folder as `jd-tts-<timestamp>.wav`.
-   Editing the text, changing the voice or the speed clears the cache,
-   so the next Play generates fresh audio. Extraction shows only a
-   clean "Finalizing... %" — never internal file names. Everything runs
+   audio to the phone's Downloads folder as `jd-tts-<timestamp>.mp3`
+   (MP3 128 kbps, ~5x smaller than WAV). While generating, the status
+   line at the bottom shows a live ETA ("Generating... ~1 min 20 sec
+   left"), estimated from the text length and the phone's measured
+   generation speed. Editing the text, changing the voice or the speed
+   clears the cache, so the next Play generates fresh audio. Extraction
+   shows only a clean "Finalizing... %" — never internal file names. Everything runs
    on-device after step 1. UI: Claude-style warm orange (`#D97757`)
    on cream, light theme forced — no download / re-download / Stop
    buttons; the model downloads itself on first launch.

@@ -37,9 +37,11 @@ import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsSupertonicModelConfig
+import com.naman14.androidlame.LameBuilder
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.FilterInputStream
@@ -107,6 +109,32 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var audioTrack: AudioTrack? = null
     @Volatile private var busy = false
     private var downloadFailed = false
+
+    // Live ETA while generating: the sherpa callback fires only once,
+    // when generation finishes, so the estimate is time-based — from
+    // the user's own measurement (3 min of audio took 2 min to
+    // generate, ~1.5x realtime) and ~11 chars of speech a second.
+    private var generating = false
+    private var generateStartMs = 0L
+    private var expectedGenSec = 0.0
+    private val etaRunnable = object : Runnable {
+        override fun run() {
+            if (!generating) return
+            val elapsedSec = (System.currentTimeMillis() - generateStartMs) / 1000.0
+            val remaining = (expectedGenSec - elapsedSec).toLong()
+            tvStatus.text = when {
+                expectedGenSec < 5 -> "Generating speech..."
+                remaining > 4 -> "Generating... ~${formatEta(remaining)}"
+                else -> "Generating... almost done..."
+            }
+            progressHandler.postDelayed(this, 500)
+        }
+    }
+
+    private fun stopEta() {
+        generating = false
+        progressHandler.removeCallbacks(etaRunnable)
+    }
 
     // Last generated audio, so Play never regenerates the same
     // text + voice + speed twice. Cleared when any of them changes.
@@ -363,10 +391,14 @@ class MainActivity : AppCompatActivity() {
         } else {
             "Download once (~129 MB). After that, speech works fully offline."
         }
-        tvStatus.text = if (ready) {
-            "Ready. Pick a voice and tap Play."
-        } else {
-            "Model not downloaded yet."
+        // While generating, the bottom line belongs to the ETA countdown
+        // — don't let a state refresh overwrite it with "Ready...".
+        if (!generating) {
+            tvStatus.text = if (ready) {
+                "Ready. Pick a voice and tap Play."
+            } else {
+                "Model not downloaded yet."
+            }
         }
     }
 
@@ -624,7 +656,15 @@ class MainActivity : AppCompatActivity() {
         seekPlay.isEnabled = false
         btnDownloadAudio.visibility = View.GONE
         tvPlayTime.text = "Generating..."
-        tvStatus.text = "Generating speech..."
+        // Live ETA in the bottom status line: the sherpa callback fires
+        // only once, when generation finishes, so the estimate is
+        // time-based — ~11 chars of speech a second at 1.0x speed, and
+        // generation runs ~1.5x realtime on the user's phone (3 min of
+        // audio took 2 min to generate).
+        expectedGenSec = text.length / 11.0 / speed() / 1.5
+        generateStartMs = System.currentTimeMillis()
+        generating = true
+        progressHandler.post(etaRunnable)
         Thread {
             try {
                 val engine = getOrCreateTts()
@@ -641,12 +681,14 @@ class MainActivity : AppCompatActivity() {
                     // The input may have changed while generating:
                     // only keep audio that still matches the screen.
                     if (key != cacheKey(etText.text.toString().trim())) {
+                        stopEta()
                         setBusy(false)
                         tvStatus.text = "Text changed — tap Play again."
                         return@runOnUiThread
                     }
                     cachedAudio = audio
                     cachedKey = key
+                    stopEta()
                     setBusy(false)
                     btnPlayPause.isEnabled = true
                     seekPlay.isEnabled = true
@@ -656,6 +698,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    stopEta()
                     setBusy(false)
                     tvStatus.text = "Failed: ${e.message}"
                     Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
@@ -664,19 +707,56 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Save the cached audio to Downloads — no regeneration. */
+    private fun toPcm(samples: FloatArray): ShortArray =
+        ShortArray(samples.size) { i ->
+            (samples[i].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
+        }
+
+    /** Encode 16-bit mono PCM to MP3 at 128 kbps CBR with LAME.
+     *  Android has no built-in MP3 encoder, so this uses the LAME
+     *  library (TAndroidLame). 128k keeps speech quality while the
+     *  file stays ~5x smaller than WAV (3 min: ~3 MB vs ~16 MB). */
+    private fun encodeMp3(pcm: ShortArray, sampleRate: Int): ByteArray {
+        val lame = LameBuilder()
+            .setInSampleRate(sampleRate)
+            .setOutChannels(1)
+            .setOutBitrate(128)
+            .setQuality(2)
+            .build()
+        // LAME needs at least 1.25 * samples + 7200 bytes of output
+        // space per chunk: 8192 samples -> 17,440 bytes, so 32 KB.
+        val mp3buf = ByteArray(32768)
+        val out = ByteArrayOutputStream()
+        try {
+            var offset = 0
+            while (offset < pcm.size) {
+                val n = minOf(8192, pcm.size - offset)
+                val chunk = pcm.copyOfRange(offset, offset + n)
+                // Mono output: the same buffer serves as both channels.
+                val encoded = lame.encode(chunk, chunk, n, mp3buf)
+                if (encoded > 0) out.write(mp3buf, 0, encoded)
+                offset += n
+            }
+            val flushed = lame.flush(mp3buf)
+            if (flushed > 0) out.write(mp3buf, 0, flushed)
+        } finally {
+            lame.close()
+        }
+        return out.toByteArray()
+    }
+
+    /** Save the cached audio to Downloads as MP3 — no regeneration. */
     private fun saveCachedAudio() {
         val audio = cachedAudio ?: return
         if (busy) return
         setBusy(true)
         Thread {
             try {
-                // sherpa saves to a file path, so write a temp file first,
-                // then move it into the public Downloads folder.
-                val fileName = "jd-tts-${System.currentTimeMillis()}.wav"
+                val mp3 = encodeMp3(toPcm(audio.samples), audio.sampleRate)
+                val fileName = "jd-tts-${System.currentTimeMillis()}.mp3"
                 val tmpFile = File(cacheDir, fileName)
-                audio.save(tmpFile.absolutePath)
-                copyToDownloads(tmpFile, fileName)
+                tmpFile.writeBytes(mp3)
+                copyToDownloads(tmpFile, fileName, "audio/mpeg")
                 tmpFile.delete()
                 runOnUiThread {
                     setBusy(false)
@@ -753,9 +833,7 @@ class MainActivity : AppCompatActivity() {
         playSampleRate = audio.sampleRate
         playTotal = samples.size
         playBaseOffset = startOffset.coerceIn(0, playTotal)
-        val pcm = ShortArray(samples.size) { i ->
-            (samples[i].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
-        }
+        val pcm = toPcm(samples)
         val track = buildTrack(playSampleRate)
         audioTrack = track
         playing = true
@@ -835,13 +913,18 @@ class MainActivity : AppCompatActivity() {
         paused = false
     }
 
-    /** Put a finished WAV into the public Downloads folder so the user
-     *  can find it in Files / Downloads instead of buried app storage. */
-    private fun copyToDownloads(file: File, displayName: String) {
+    /** Put a finished audio file into the public Downloads folder so
+     *  the user can find it in Files / Downloads instead of buried
+     *  app storage. */
+    private fun copyToDownloads(
+        file: File,
+        displayName: String,
+        mimeType: String = "audio/x-wav",
+    ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-                put(MediaStore.MediaColumns.MIME_TYPE, "audio/x-wav")
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
                 put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
             }
             val uri = contentResolver.insert(

@@ -10,6 +10,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // TAndroidLame (LAME MP3 encoder) is published via JitPack only.
+        maven { url 'https://jitpack.io' }
     }
 }
 
