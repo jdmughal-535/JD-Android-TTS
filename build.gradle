@@ -1,0 +1,7 @@
+// Top-level build file. Versions match the proven JD-MultiSpace stack
+// (Gradle 8.14.5, AGP 8.13.2, Kotlin 1.9.23, JDK 21) so the same
+// GitHub Actions workflow builds this repo too.
+plugins {
+    id 'com.android.application' version '8.13.2' apply false
+    id 'org.jetbrains.kotlin.android' version '1.9.23' apply false
+}

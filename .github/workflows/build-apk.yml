@@ -1,0 +1,63 @@
+name: Build debug APK
+
+# Builds the JD Android TTS debug APK on GitHub's Linux runner and uploads
+# it as a downloadable artifact. Runs on every push to main, and can also
+# be started by hand from the Actions tab (workflow_dispatch).
+#
+# Stack (same proven stack as JD-MultiSpace):
+#   Gradle 8.14.5  (from gradle/wrapper/gradle-wrapper.properties)
+#   JDK 21, AGP 8.13.2, Kotlin 1.9.23
+#   compileSdk 36, targetSdk 36, minSdk 26
+#   Module :app, task assembleDebug (no secrets, no NDK build)
+#
+# The sherpa-onnx AAR (~48 MB, v1.13.6) is downloaded by Gradle on first
+# build (fetchSherpaOnnx task in app/build.gradle) and is NOT committed.
+# The Supertonic voice model (~123 MB) is NOT in the APK either — the app
+# downloads it once on first run, then works fully offline.
+#
+# NOTE: android-actions/setup-android@v3 is NOT used — it runs
+# `sdkmanager tools`, and the obsolete `tools` package no longer exists.
+# The ubuntu runner already ships the Android SDK, so we install the
+# exact components with sdkmanager directly.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Install SDK components
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          for d in "$ANDROID_HOME"/cmdline-tools/*/bin; do
+            [ -d "$d" ] && export PATH="$d:$PATH"
+          done
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: jd-android-tts-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 90
