@@ -19,8 +19,13 @@ tasks.register("fetchSherpaOnnx") {
         def url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/" +
                 "v${sherpaVersion}/sherpa-onnx-${sherpaVersion}.aar"
         logger.lifecycle("Downloading sherpa-onnx ${sherpaVersion} (~48 MB)...")
-        uri(url).toURL().openStream().use { input ->
-            sherpaAar.outputStream().use { input.copyTo(it) }
+        // NOTE: Groovy, not Kotlin — use withStream/withOutputStream, NOT
+        // .use { } (Groovy reads that as the category method and fails with
+        // "Expecting at least 2 arguments, a category class and a Closure").
+        sherpaAar.withOutputStream { out ->
+            uri(url).toURL().openStream().withStream { input ->
+                out << input
+            }
         }
         logger.lifecycle("Downloaded ${sherpaAar.name} (${sherpaAar.length()} bytes)")
     }
