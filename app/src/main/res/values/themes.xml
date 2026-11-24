@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.JDAndroidTTS" parent="Theme.Material3.DayNight">
-        <item name="colorPrimary">@color/purple_500</item>
+    <!-- NoActionBar: the layout draws its own clean header, so the title
+         does not appear twice (the bug in the first screenshot).
+         Light theme is forced so the phone's dark mode never turns
+         the UI dark purple like in the second screenshot. -->
+    <style name="Theme.JDAndroidTTS" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">#D97757</item>
+        <item name="colorPrimaryVariant">#B85C40</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>

@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_500">#6200EE</color>
-    <color name="ic_launcher_background">#6200EE</color>
+    <!-- Claude palette: warm coral orange on a warm cream background. -->
+    <color name="claude_orange">#D97757</color>
+    <color name="claude_orange_dark">#B85C40</color>
+    <color name="claude_bg">#F9F8F5</color>
+    <color name="claude_ink">#1F1E1D</color>
+    <color name="claude_muted">#6E6A63</color>
+    <color name="claude_faint">#A8A29A</color>
+    <color name="claude_border">#E7E2D9</color>
+    <color name="claude_input">#F1EEE9</color>
+    <color name="claude_track">#EDE8E0</color>
+    <color name="purple_500">#D97757</color>
+    <color name="ic_launcher_background">#D97757</color>
 </resources>

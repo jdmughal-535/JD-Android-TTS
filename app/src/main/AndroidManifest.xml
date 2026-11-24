@@ -4,6 +4,11 @@
     <!-- Only needed once, to download the Supertonic model (~123 MB).
          Speech itself runs 100% offline after that. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Only for Android 9 and older, where WAVs are written straight into
+         the public Downloads folder. Android 10+ uses MediaStore instead. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:allowBackup="true"

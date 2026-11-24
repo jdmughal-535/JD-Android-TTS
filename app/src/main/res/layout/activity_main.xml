@@ -1,18 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#F9F8F5"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="20dp">
 
+        <!-- Header -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="JD Android TTS"
+            android:textColor="#1F1E1D"
             android:textSize="24sp"
             android:textStyle="bold" />
 
@@ -20,84 +24,202 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Offline speech — Supertonic 3, English. No account, no API key." />
+            android:text="Offline text-to-speech · Supertonic 3"
+            android:textColor="#6E6A63"
+            android:textSize="14sp" />
+
+        <!-- Text card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Text"
+                android:textColor="#1F1E1D"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/btnPaste"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="Paste"
+                android:padding="6dp"
+                android:src="@drawable/ic_paste"
+                android:tint="#D97757" />
+        </LinearLayout>
 
         <EditText
             android:id="@+id/etText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="top"
-            android:hint="Type text here..."
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_input"
+            android:gravity="top|start"
+            android:hint="Type something to hear it spoken..."
             android:inputType="textMultiLine"
-            android:minLines="5"
-            android:text="Hello! This is JD Android TTS, speaking offline with the Supertonic voice." />
+            android:minLines="6"
+            android:padding="16dp"
+            android:text="Hello! This is JD Android TTS, speaking offline with the Supertonic voice."
+            android:textColor="#1F1E1D"
+            android:textColorHint="#A8A29A"
+            android:textSize="16sp" />
 
+        <!-- Voice card -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Voice" />
+            android:layout_marginTop="20dp"
+            android:text="Voice"
+            android:textColor="#1F1E1D"
+            android:textSize="13sp"
+            android:textStyle="bold" />
 
-        <Spinner
-            android:id="@+id/spinnerVoice"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
-
-        <TextView
-            android:id="@+id/tvSpeed"
-            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Speed: 1.0x" />
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="4dp">
+
+            <Spinner
+                android:id="@+id/spinnerVoice"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
+        </LinearLayout>
+
+        <!-- Speed -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Speed"
+                android:textColor="#1F1E1D"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvSpeed"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1.0x"
+                android:textColor="#6E6A63"
+                android:textSize="13sp" />
+        </LinearLayout>
 
         <SeekBar
             android:id="@+id/seekSpeed"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:progressTint="#D97757"
+            android:thumbTint="#D97757" />
 
-        <Button
-            android:id="@+id/btnDownload"
+        <!-- Model status card: the model downloads itself on first launch,
+             so there is no download button and no re-download button. -->
+        <LinearLayout
+            android:id="@+id/modelCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Download model (~123 MB)" />
+            android:layout_marginTop="20dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
 
+            <TextView
+                android:id="@+id/tvModelStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Model not downloaded"
+                android:textColor="#1F1E1D"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvModelSub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Downloading once (~123 MB). After that, speech works fully offline."
+                android:textColor="#6E6A63"
+                android:textSize="13sp" />
+
+            <ProgressBar
+                android:id="@+id/progressBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="6dp"
+                android:layout_marginTop="12dp"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/bg_progress"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvProgress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="#6E6A63"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Actions -->
         <Button
             android:id="@+id/btnSpeak"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Speak" />
+            android:layout_height="54dp"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/bg_button_dark"
+            android:drawableStart="@drawable/ic_play"
+            android:drawablePadding="10dp"
+            android:drawableTint="#FFFFFF"
+            android:text="Play"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
 
         <Button
             android:id="@+id/btnSave"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Save as WAV" />
-
-        <Button
-            android:id="@+id/btnStop"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Stop" />
-
-        <ProgressBar
-            android:id="@+id/progressBar"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:layout_marginTop="16dp"
-            android:visibility="gone" />
+            android:layout_height="54dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_button_outline"
+            android:drawableStart="@drawable/ic_download"
+            android:drawablePadding="10dp"
+            android:drawableTint="#D97757"
+            android:text="Save as WAV"
+            android:textAllCaps="false"
+            android:textColor="#D97757"
+            android:textSize="15sp" />
 
         <TextView
             android:id="@+id/tvStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Model not downloaded yet." />
+            android:gravity="center"
+            android:text="Model not downloaded yet."
+            android:textColor="#A8A29A"
+            android:textSize="13sp" />
 
     </LinearLayout>
 </ScrollView>
