@@ -20,9 +20,18 @@ No account, no API key, no internet needed after the first model download.
    a failed download resumes from where it stopped when you tap Retry.
    The button hides once the model is ready.
 2. After that, type text (or tap the small paste icon above the text
-   box to paste from the clipboard), pick a voice and speed, tap **Play**
-   (plays through the speaker) or **Save as WAV** (saves to the phone's
-   Downloads folder, as `jd-tts-<timestamp>.wav`). Everything runs
+   box to paste from the clipboard), pick a voice and speed, tap **Play**.
+   Not sure which voice to pick? Open the voice list and tap the small
+   play icon next to any voice to hear a short sample of it first —
+   samples are bundled in the app, so they play even before the model
+   is downloaded.
+   The first Play generates the speech; later Plays replay it from a
+   cache (no regeneration). A mini audio player appears with pause,
+   seek bar and time, plus a small download icon that saves the cached
+   audio to the phone's Downloads folder as `jd-tts-<timestamp>.wav`.
+   Editing the text, changing the voice or the speed clears the cache,
+   so the next Play generates fresh audio. Extraction shows only a
+   clean "Finalizing... %" — never internal file names. Everything runs
    on-device after step 1. UI: Claude-style warm orange (`#D97757`)
    on cream, light theme forced — no download / re-download / Stop
    buttons; the model downloads itself on first launch.

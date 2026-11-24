@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rootScroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -143,8 +144,8 @@
             android:progressTint="#D97757"
             android:thumbTint="#D97757" />
 
-        <!-- Model status card: the model downloads itself on first launch,
-             so there is no download button and no re-download button. -->
+        <!-- Model status card: download lives only here, never mixed
+             with Play. The button hides once the model is ready. -->
         <LinearLayout
             android:id="@+id/modelCard"
             android:layout_width="match_parent"
@@ -192,50 +193,100 @@
                 android:textSize="13sp"
                 android:visibility="gone" />
 
-            <!-- Manual download only: the model never downloads by itself.
-                 The button hides once the model is ready. -->
-            <Button
+            <!-- Manual download only: the model never downloads by itself. -->
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnDownload"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="12dp"
                 android:background="@drawable/bg_button_dark"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
                 android:text="Download model"
                 android:textAllCaps="false"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/btn_text_primary"
                 android:textSize="15sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                app:backgroundTint="@null"
+                app:icon="@drawable/ic_download"
+                app:iconGravity="textStart"
+                app:iconPadding="10dp"
+                app:iconTint="@color/btn_text_primary" />
         </LinearLayout>
 
-        <!-- Actions -->
-        <Button
+        <!-- Play: generates once, then plays from cache. -->
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSpeak"
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:layout_marginTop="20dp"
             android:background="@drawable/bg_button_dark"
-            android:drawableStart="@drawable/ic_play"
-            android:drawablePadding="10dp"
-            android:drawableTint="#FFFFFF"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
             android:text="Play"
             android:textAllCaps="false"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/btn_text_primary"
             android:textSize="16sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            app:backgroundTint="@null"
+            app:icon="@drawable/ic_play"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:iconTint="@color/btn_text_primary" />
 
-        <Button
-            android:id="@+id/btnSave"
+        <!-- Mini audio player: pause / seek / time / save.
+             Saving is the small download icon here — no big Save button. -->
+        <LinearLayout
+            android:id="@+id/playerCard"
             android:layout_width="match_parent"
-            android:layout_height="54dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:background="@drawable/bg_button_outline"
-            android:drawableStart="@drawable/ic_download"
-            android:drawablePadding="10dp"
-            android:drawableTint="#D97757"
-            android:text="Save as WAV"
-            android:textAllCaps="false"
-            android:textColor="#D97757"
-            android:textSize="15sp" />
+            android:background="@drawable/bg_card"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="12dp"
+            android:visibility="gone">
+
+            <ImageButton
+                android:id="@+id/btnPlayPause"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_circle_orange"
+                android:contentDescription="Pause"
+                android:padding="10dp"
+                android:src="@drawable/ic_pause"
+                android:tint="#FFFFFF" />
+
+            <SeekBar
+                android:id="@+id/seekPlay"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:progressTint="#D97757"
+                android:thumbTint="#D97757" />
+
+            <TextView
+                android:id="@+id/tvPlayTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="0:00 / 0:00"
+                android:textColor="#6E6A63"
+                android:textSize="12sp" />
+
+            <ImageButton
+                android:id="@+id/btnDownloadAudio"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="Save audio"
+                android:padding="6dp"
+                android:src="@drawable/ic_download"
+                android:tint="#D97757"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tvStatus"

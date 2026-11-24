@@ -1,10 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_dropdown_item"
-    android:ellipsize="end"
-    android:padding="16dp"
-    android:singleLine="true"
-    android:textColor="#1F1E1D"
-    android:textSize="15sp" />
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="8dp">
+
+    <TextView
+        android:id="@+id/tvVoiceName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="#1F1E1D"
+        android:textSize="15sp" />
+
+    <!-- Tap to hear this voice before downloading the model.
+         Tapping it does not select the voice. -->
+    <ImageButton
+        android:id="@+id/btnSample"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="Play sample"
+        android:focusable="false"
+        android:focusableInTouchMode="false"
+        android:padding="6dp"
+        android:src="@drawable/ic_play"
+        android:tint="#D97757" />
+</LinearLayout>

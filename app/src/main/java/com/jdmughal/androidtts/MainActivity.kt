@@ -6,15 +6,21 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.view.View
+import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -24,8 +30,10 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.widget.doAfterTextChanged
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
+import com.k2fsa.sherpa.onnx.OfflineTtsAudio
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsSupertonicModelConfig
@@ -85,18 +93,133 @@ class MainActivity : AppCompatActivity() {
     private lateinit var seekSpeed: SeekBar
     private lateinit var tvSpeed: TextView
     private lateinit var btnSpeak: Button
-    private lateinit var btnSave: Button
     private lateinit var tvStatus: TextView
     private lateinit var tvModelStatus: TextView
     private lateinit var tvModelSub: TextView
     private lateinit var tvProgress: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var playerCard: LinearLayout
+    private lateinit var btnPlayPause: ImageButton
+    private lateinit var seekPlay: SeekBar
+    private lateinit var tvPlayTime: TextView
+    private lateinit var btnDownloadAudio: ImageButton
 
     @Volatile private var audioTrack: AudioTrack? = null
     @Volatile private var busy = false
     private var downloadFailed = false
 
+    // Last generated audio, so Play never regenerates the same
+    // text + voice + speed twice. Cleared when any of them changes.
+    private var cachedAudio: OfflineTtsAudio? = null
+    private var cachedKey: String? = null
+
+    // Voice-sample preview in the dropdown (bundled assets, plays
+    // without the model downloaded).
+    private var samplePlayer: MediaPlayer? = null
+    private var samplePlayingSid = -1
+
+    // Mini-player state.
+    private var playing = false
+    private var paused = false
+    private var playToken = 0
+    private var playBaseOffset = 0 // samples already played before this track started
+    private var playTotal = 0 // total samples of the current audio
+    private var playSampleRate = 24_000
+    private val progressHandler = Handler(Looper.getMainLooper())
+    private val progressRunnable = object : Runnable {
+        override fun run() {
+            if (!playing || paused) return
+            val pos = currentPosition()
+            seekPlay.progress = pos
+            tvPlayTime.text = "${formatTime(pos)} / ${formatTime(playTotal)}"
+            if (pos >= playTotal) {
+                onPlaybackFinished()
+            } else {
+                progressHandler.postDelayed(this, 200)
+            }
+        }
+    }
+
     private var tts: OfflineTts? = null
+
+    /** Dropdown rows: the voice name, plus a play icon that previews
+     *  that voice's sample (bundled asset — no model download needed).
+     *  Tapping the icon only plays the sample; tapping the row text
+     *  selects the voice. */
+    private inner class VoiceAdapter(context: Context) :
+        ArrayAdapter<Pair<String, Int>>(context, R.layout.spinner_item, voices) {
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val view = convertView ?: layoutInflater.inflate(R.layout.spinner_item, parent, false)
+            (view as TextView).text = getItem(position)?.first
+            return view
+        }
+
+        override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val view = convertView
+                ?: layoutInflater.inflate(R.layout.spinner_dropdown_item, parent, false)
+            val item = getItem(position)!!
+            view.findViewById<TextView>(R.id.tvVoiceName).text = item.first
+            val btnSample = view.findViewById<ImageButton>(R.id.btnSample)
+            val isPlaying = samplePlayingSid == item.second
+            btnSample.setImageResource(
+                if (isPlaying) R.drawable.ic_stop else R.drawable.ic_play,
+            )
+            btnSample.contentDescription =
+                if (isPlaying) "Stop sample" else "Play sample"
+            btnSample.setOnClickListener { playVoiceSample(item.second) }
+            return view
+        }
+    }
+
+    private fun sampleFileFor(sid: Int): String {
+        val names = listOf("f1", "f2", "f3", "f4", "f5", "m1", "m2", "m3", "m4", "m5")
+        return "voice_samples/${names[sid]}.mp3"
+    }
+
+    /** Play one voice's bundled sample. Tapping the same voice again
+     *  stops it; tapping another voice switches to that one. */
+    private fun playVoiceSample(sid: Int) {
+        if (samplePlayingSid == sid) {
+            stopSample()
+            return
+        }
+        stopSample()
+        try {
+            val afd = assets.openFd(sampleFileFor(sid))
+            val player = MediaPlayer()
+            player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+            player.setOnCompletionListener { stopSample() }
+            player.prepare()
+            player.start()
+            samplePlayer = player
+            samplePlayingSid = sid
+            refreshVoiceAdapter()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Sample not available", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun stopSample() {
+        samplePlayer?.let { player ->
+            try {
+                player.stop()
+            } catch (e: Exception) {
+            }
+            try {
+                player.release()
+            } catch (e: Exception) {
+            }
+        }
+        samplePlayer = null
+        if (samplePlayingSid >= 0) {
+            samplePlayingSid = -1
+            refreshVoiceAdapter()
+        }
+    }
+
+    private fun refreshVoiceAdapter() {
+        (spinnerVoice.adapter as? VoiceAdapter)?.notifyDataSetChanged()
+    }
 
     private fun modelDir(): File =
         File(getExternalFilesDir("models"), MODEL_DIR_NAME)
@@ -127,8 +250,12 @@ class MainActivity : AppCompatActivity() {
         seekSpeed = findViewById(R.id.seekSpeed)
         tvSpeed = findViewById(R.id.tvSpeed)
         btnSpeak = findViewById(R.id.btnSpeak)
-        btnSave = findViewById(R.id.btnSave)
         tvStatus = findViewById(R.id.tvStatus)
+        playerCard = findViewById(R.id.playerCard)
+        btnPlayPause = findViewById(R.id.btnPlayPause)
+        seekPlay = findViewById(R.id.seekPlay)
+        tvPlayTime = findViewById(R.id.tvPlayTime)
+        btnDownloadAudio = findViewById(R.id.btnDownloadAudio)
         tvModelStatus = findViewById(R.id.tvModelStatus)
         tvModelSub = findViewById(R.id.tvModelSub)
         tvProgress = findViewById(R.id.tvProgress)
@@ -137,16 +264,11 @@ class MainActivity : AppCompatActivity() {
         // Keep the default text showing from the top, not scrolled to the end.
         etText.setSelection(0)
 
-        // Custom layouts so the dropdown matches the Claude theme
+        // Custom adapter so the dropdown matches the Claude theme
         // (white popup, ink text, orange-tinted selection) instead of
-        // the default pink-tinted Material dropdown.
-        val adapter = ArrayAdapter(
-            this,
-            R.layout.spinner_item,
-            voices.map { it.first },
-        )
-        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
-        spinnerVoice.adapter = adapter
+        // the default pink-tinted Material dropdown — and so every
+        // voice row has a play icon for its sample.
+        spinnerVoice.adapter = VoiceAdapter(this)
         spinnerVoice.setSelection(DEFAULT_SID)
 
         seekSpeed.max = 20
@@ -156,14 +278,41 @@ class MainActivity : AppCompatActivity() {
         seekSpeed.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) = updateSpeedLabel()
             override fun onStartTrackingTouch(s: SeekBar?) {}
-            override fun onStopTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) = invalidateCache()
         })
 
         btnPaste.setOnClickListener { pasteFromClipboard() }
         btnClear.setOnClickListener { etText.text.clear() }
         btnDownload.setOnClickListener { downloadModel() }
-        btnSpeak.setOnClickListener { speak(saveToFile = false) }
-        btnSave.setOnClickListener { speak(saveToFile = true) }
+        btnSpeak.setOnClickListener { onPlayClicked() }
+        btnPlayPause.setOnClickListener { togglePlayPause() }
+        btnDownloadAudio.setOnClickListener { saveCachedAudio() }
+        seekPlay.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                if (fromUser) tvPlayTime.text = "${formatTime(p)} / ${formatTime(playTotal)}"
+            }
+            override fun onStartTrackingTouch(s: SeekBar?) {}
+            override fun onStopTrackingTouch(s: SeekBar?) {
+                val audio = cachedAudio ?: return
+                startPlayback(audio, s?.progress ?: 0)
+            }
+        })
+
+        // Any change to text, voice or speed throws the cache away —
+        // the next Play generates fresh audio for the new input.
+        etText.doAfterTextChanged { invalidateCache() }
+        var spinnerReady = false
+        spinnerVoice.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (!spinnerReady) {
+                    spinnerReady = true
+                    return
+                }
+                stopSample()
+                invalidateCache()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
 
         refreshState()
         // No auto-download: the user starts the model download manually
@@ -201,9 +350,8 @@ class MainActivity : AppCompatActivity() {
     private fun refreshState() {
         val ready = isModelReady()
         btnSpeak.isEnabled = ready && !busy
-        btnSave.isEnabled = ready && !busy
         // The download button lives only in the model card and only
-        // while the model is missing — never next to Play / Save.
+        // while the model is missing — never next to Play.
         btnDownload.visibility = if (ready) View.GONE else View.VISIBLE
         btnDownload.isEnabled = !busy
         btnDownload.text =
@@ -245,16 +393,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Indeterminate spinner state, used while generating speech. */
-    private fun showGenerating() {
-        runOnUiThread {
-            progressBar.isIndeterminate = true
-            progressBar.visibility = View.VISIBLE
-            tvProgress.visibility = View.VISIBLE
-            tvProgress.text = "Generating speech..."
-        }
-    }
-
     private fun formatMb(bytes: Long): String =
         "%.1f MB".format(bytes / 1_000_000.0)
 
@@ -272,7 +410,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Download + extract the Supertonic model tarball on a worker thread,
      *  reporting live progress: % + MB + speed + ETA while downloading,
-     *  and % + current file while extracting. */
+     *  and a clean "Finalizing... %" while extracting. */
     private fun downloadModel() {
         if (busy) return
         downloadFailed = false
@@ -284,7 +422,7 @@ class MainActivity : AppCompatActivity() {
                 modelsRoot.mkdirs()
                 val tmpFile = File(modelsRoot, "supertonic-3.tar.bz2")
                 downloadWithProgress(tmpFile)
-                runOnUiThread { tvModelStatus.text = "Extracting model..." }
+                runOnUiThread { tvModelStatus.text = "Finalizing model..." }
                 extractTarBz2(tmpFile, modelsRoot)
                 tmpFile.delete()
                 if (!isModelReady()) throw IllegalStateException("Extracted model is incomplete")
@@ -385,12 +523,14 @@ class MainActivity : AppCompatActivity() {
         val archiveSize = archive.length().coerceAtLeast(1)
         val counting = CountingInputStream(BufferedInputStream(archive.inputStream()))
         var lastUiUpdate = 0L
-        fun report(currentFile: String) {
+        // The user never sees internal file names: just a clean
+        // "Finalizing..." with the percent.
+        fun report() {
             val now = System.currentTimeMillis()
             if (now - lastUiUpdate < 300) return
             lastUiUpdate = now
             val percent = (counting.count * 100 / archiveSize).toInt()
-            showProgress(percent, "Extracting... $percent% · $currentFile")
+            showProgress(percent, "Finalizing... $percent%")
         }
         BZip2CompressorInputStream(counting).use { bzIn ->
             TarArchiveInputStream(bzIn).use { tarIn ->
@@ -408,17 +548,17 @@ class MainActivity : AppCompatActivity() {
                             var n = tarIn.read(buf)
                             while (n != -1) {
                                 out.write(buf, 0, n)
-                                report(File(entry.name).name)
+                                report()
                                 n = tarIn.read(buf)
                             }
                         }
                     }
-                    report(File(entry.name).name)
+                    report()
                     entry = tarIn.nextTarEntry
                 }
             }
         }
-        showProgress(100, "Extracting... 100% · done")
+        showProgress(100, "Finalizing... 100%")
     }
 
     private fun getOrCreateTts(): OfflineTts {
@@ -442,8 +582,23 @@ class MainActivity : AppCompatActivity() {
         return OfflineTts(config = config).also { tts = it }
     }
 
-    /** Generate speech for the text box and either play it or save it as WAV. */
-    private fun speak(saveToFile: Boolean) {
+    private fun cacheKey(text: String): String =
+        "$text|${selectedSid()}|${speed()}"
+
+    /** The cache dies the moment the input changes, so Play never
+     *  plays stale audio for new text, a new voice or a new speed. */
+    private fun invalidateCache() {
+        if (cachedAudio == null && cachedKey == null) return
+        cachedAudio = null
+        cachedKey = null
+        stopTrack()
+        playerCard.visibility = View.GONE
+        btnDownloadAudio.visibility = View.GONE
+    }
+
+    /** Play: generate once, then replay from the cache — no
+     *  regeneration while the text, voice and speed stay the same. */
+    private fun onPlayClicked() {
         if (busy) return
         val text = etText.text.toString().trim()
         if (text.isEmpty()) {
@@ -454,8 +609,21 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Download the model first", Toast.LENGTH_SHORT).show()
             return
         }
+        val key = cacheKey(text)
+        val cached = cachedAudio
+        if (cached != null && cachedKey == key) {
+            playerCard.visibility = View.VISIBLE
+            btnDownloadAudio.visibility = View.VISIBLE
+            startPlayback(cached, 0)
+            tvStatus.text = "Playing from cache..."
+            return
+        }
         setBusy(true)
-        showGenerating()
+        playerCard.visibility = View.VISIBLE
+        btnPlayPause.isEnabled = false
+        seekPlay.isEnabled = false
+        btnDownloadAudio.visibility = View.GONE
+        tvPlayTime.text = "Generating..."
         tvStatus.text = "Generating speech..."
         Thread {
             try {
@@ -469,32 +637,25 @@ class MainActivity : AppCompatActivity() {
                 // generateWithConfig is the documented Kotlin path for
                 // GenerationConfig (sid / numSteps / speed / lang).
                 val audio = engine.generateWithConfig(text, genConfig)
-                if (saveToFile) {
-                    // sherpa saves to a file path, so write a temp file first,
-                    // then move it into the public Downloads folder.
-                    val fileName = "jd-tts-${System.currentTimeMillis()}.wav"
-                    val tmpFile = File(cacheDir, fileName)
-                    audio.save(tmpFile.absolutePath)
-                    copyToDownloads(tmpFile, fileName)
-                    tmpFile.delete()
-                    runOnUiThread {
-                        hideProgress()
+                runOnUiThread {
+                    // The input may have changed while generating:
+                    // only keep audio that still matches the screen.
+                    if (key != cacheKey(etText.text.toString().trim())) {
                         setBusy(false)
-                        tvStatus.text = "Saved to Downloads · $fileName"
-                        Toast.makeText(this, "Saved to Downloads", Toast.LENGTH_SHORT).show()
+                        tvStatus.text = "Text changed — tap Play again."
+                        return@runOnUiThread
                     }
-                } else {
-                    runOnUiThread { tvStatus.text = "Playing..." }
-                    playSamples(audio.samples, audio.sampleRate)
-                    runOnUiThread {
-                        hideProgress()
-                        setBusy(false)
-                        tvStatus.text = "Done."
-                    }
+                    cachedAudio = audio
+                    cachedKey = key
+                    setBusy(false)
+                    btnPlayPause.isEnabled = true
+                    seekPlay.isEnabled = true
+                    btnDownloadAudio.visibility = View.VISIBLE
+                    startPlayback(audio, 0)
+                    tvStatus.text = "Playing..."
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    hideProgress()
                     setBusy(false)
                     tvStatus.text = "Failed: ${e.message}"
                     Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
@@ -503,11 +664,60 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun playSamples(samples: FloatArray, sampleRate: Int) {
-        val pcm = ShortArray(samples.size) { i ->
-            (samples[i].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
+    /** Save the cached audio to Downloads — no regeneration. */
+    private fun saveCachedAudio() {
+        val audio = cachedAudio ?: return
+        if (busy) return
+        setBusy(true)
+        Thread {
+            try {
+                // sherpa saves to a file path, so write a temp file first,
+                // then move it into the public Downloads folder.
+                val fileName = "jd-tts-${System.currentTimeMillis()}.wav"
+                val tmpFile = File(cacheDir, fileName)
+                audio.save(tmpFile.absolutePath)
+                copyToDownloads(tmpFile, fileName)
+                tmpFile.delete()
+                runOnUiThread {
+                    setBusy(false)
+                    tvStatus.text = "Saved to Downloads · $fileName"
+                    Toast.makeText(this, "Saved to Downloads", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    setBusy(false)
+                    tvStatus.text = "Save failed: ${e.message}"
+                    Toast.makeText(this, "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun formatTime(samples: Int): String {
+        val totalSec = samples / playSampleRate.coerceAtLeast(1)
+        return "${totalSec / 60}:${(totalSec % 60).toString().padStart(2, '0')}"
+    }
+
+    private fun currentPosition(): Int {
+        val track = audioTrack ?: return playBaseOffset
+        val head = try {
+            track.playbackHeadPosition
+        } catch (e: Exception) {
+            0
         }
-        val track = AudioTrack.Builder()
+        return (playBaseOffset + head).coerceIn(0, playTotal)
+    }
+
+    private fun updatePlayPauseIcon() {
+        val playingNow = playing && !paused
+        btnPlayPause.setImageResource(
+            if (playingNow) R.drawable.ic_pause else R.drawable.ic_play,
+        )
+        btnPlayPause.contentDescription = if (playingNow) "Pause" else "Play"
+    }
+
+    private fun buildTrack(sampleRate: Int): AudioTrack {
+        return AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -530,17 +740,99 @@ class MainActivity : AppCompatActivity() {
                 ).coerceAtLeast(4096),
             )
             .build()
-        audioTrack = track
-        track.play()
-        var offset = 0
-        while (offset < pcm.size) {
-            val chunk = minOf(4096, pcm.size - offset)
-            track.write(pcm, offset, chunk)
-            offset += chunk
+    }
+
+    /** Stream the cached audio from the given sample offset, like a
+     *  media player: the progress bar and time keep moving, and the
+     *  pause button and seek bar actually work. */
+    private fun startPlayback(audio: OfflineTtsAudio, startOffset: Int) {
+        stopSample()
+        stopTrack()
+        val token = playToken
+        val samples = audio.samples
+        playSampleRate = audio.sampleRate
+        playTotal = samples.size
+        playBaseOffset = startOffset.coerceIn(0, playTotal)
+        val pcm = ShortArray(samples.size) { i ->
+            (samples[i].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
         }
-        track.stop()
-        track.release()
+        val track = buildTrack(playSampleRate)
+        audioTrack = track
+        playing = true
+        paused = false
+        btnPlayPause.isEnabled = true
+        seekPlay.isEnabled = true
+        updatePlayPauseIcon()
+        seekPlay.max = playTotal
+        seekPlay.progress = playBaseOffset
+        tvPlayTime.text = "${formatTime(playBaseOffset)} / ${formatTime(playTotal)}"
+        track.play()
+        progressHandler.post(progressRunnable)
+        Thread {
+            try {
+                var offset = playBaseOffset
+                while (offset < pcm.size && token == playToken) {
+                    val chunk = minOf(4096, pcm.size - offset)
+                    track.write(pcm, offset, chunk)
+                    offset += chunk
+                }
+            } catch (e: Exception) {
+                // Old writer thread after a stop/seek: ignore it.
+            }
+        }.start()
+    }
+
+    private fun togglePlayPause() {
+        if (!playing) {
+            // Finished (or never started): replay the cached audio
+            // from the start, or from where the seek bar sits.
+            val audio = cachedAudio ?: return
+            val from = seekPlay.progress.coerceIn(0, playTotal)
+            startPlayback(audio, if (from >= playTotal) 0 else from)
+            return
+        }
+        val track = audioTrack ?: return
+        if (paused) {
+            track.play()
+            paused = false
+            progressHandler.post(progressRunnable)
+        } else {
+            track.pause()
+            paused = true
+            progressHandler.removeCallbacks(progressRunnable)
+            seekPlay.progress = currentPosition()
+            tvPlayTime.text = "${formatTime(seekPlay.progress)} / ${formatTime(playTotal)}"
+        }
+        updatePlayPauseIcon()
+    }
+
+    private fun onPlaybackFinished() {
+        playing = false
+        paused = false
+        progressHandler.removeCallbacks(progressRunnable)
+        seekPlay.progress = playTotal
+        tvPlayTime.text = "${formatTime(playTotal)} / ${formatTime(playTotal)}"
+        updatePlayPauseIcon()
+        tvStatus.text = "Done."
+    }
+
+    /** Stop the current track and drop any writer thread still running. */
+    private fun stopTrack() {
+        playToken++
+        progressHandler.removeCallbacks(progressRunnable)
+        audioTrack?.let { track ->
+            try {
+                track.stop()
+            } catch (e: Exception) {
+            }
+            try {
+                track.release()
+            } catch (e: Exception) {
+            }
+        }
         audioTrack = null
+        playing = false
+        paused = false
     }
 
     /** Put a finished WAV into the public Downloads folder so the user
@@ -569,7 +861,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        audioTrack?.stop()
+        stopSample()
+        stopTrack()
         tts?.release()
         tts = null
         super.onDestroy()
