@@ -33,7 +33,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.doAfterTextChanged
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
-import com.k2fsa.sherpa.onnx.OfflineTtsAudio
+import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsSupertonicModelConfig
@@ -110,7 +110,7 @@ class MainActivity : AppCompatActivity() {
 
     // Last generated audio, so Play never regenerates the same
     // text + voice + speed twice. Cleared when any of them changes.
-    private var cachedAudio: OfflineTtsAudio? = null
+    private var cachedAudio: GeneratedAudio? = null
     private var cachedKey: String? = null
 
     // Voice-sample preview in the dropdown (bundled assets, plays
@@ -745,7 +745,7 @@ class MainActivity : AppCompatActivity() {
     /** Stream the cached audio from the given sample offset, like a
      *  media player: the progress bar and time keep moving, and the
      *  pause button and seek bar actually work. */
-    private fun startPlayback(audio: OfflineTtsAudio, startOffset: Int) {
+    private fun startPlayback(audio: GeneratedAudio, startOffset: Int) {
         stopSample()
         stopTrack()
         val token = playToken
