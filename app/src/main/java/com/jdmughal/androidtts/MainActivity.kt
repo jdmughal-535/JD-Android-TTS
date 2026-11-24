@@ -16,11 +16,14 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
@@ -41,7 +44,7 @@ import java.net.URL
  *
  * Engine: Supertonic 3 (int8), 31 languages, 10 speakers, 24 kHz.
  * Default voice: M5 (sid 9) — warm, storytelling male.
- * The model (~123 MB) is downloaded once from the sherpa-onnx
+ * The model (~129 MB) is downloaded once from the sherpa-onnx
  * tts-models release and extracted to external files; after that
  * everything runs offline, no API key, no account.
  *
@@ -76,6 +79,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var etText: EditText
     private lateinit var btnPaste: ImageButton
+    private lateinit var btnClear: ImageButton
+    private lateinit var btnDownload: Button
     private lateinit var spinnerVoice: Spinner
     private lateinit var seekSpeed: SeekBar
     private lateinit var tvSpeed: TextView
@@ -89,6 +94,7 @@ class MainActivity : AppCompatActivity() {
 
     @Volatile private var audioTrack: AudioTrack? = null
     @Volatile private var busy = false
+    private var downloadFailed = false
 
     private var tts: OfflineTts? = null
 
@@ -104,8 +110,19 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Android 16 enforces edge-to-edge: keep the header below the
+        // status bar and the footer above the gesture bar.
+        val rootScroll = findViewById<ScrollView>(R.id.rootScroll)
+        ViewCompat.setOnApplyWindowInsetsListener(rootScroll) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, bars.top, 0, bars.bottom)
+            insets
+        }
+
         etText = findViewById(R.id.etText)
         btnPaste = findViewById(R.id.btnPaste)
+        btnClear = findViewById(R.id.btnClear)
+        btnDownload = findViewById(R.id.btnDownload)
         spinnerVoice = findViewById(R.id.spinnerVoice)
         seekSpeed = findViewById(R.id.seekSpeed)
         tvSpeed = findViewById(R.id.tvSpeed)
@@ -120,11 +137,15 @@ class MainActivity : AppCompatActivity() {
         // Keep the default text showing from the top, not scrolled to the end.
         etText.setSelection(0)
 
+        // Custom layouts so the dropdown matches the Claude theme
+        // (white popup, ink text, orange-tinted selection) instead of
+        // the default pink-tinted Material dropdown.
         val adapter = ArrayAdapter(
             this,
-            android.R.layout.simple_spinner_dropdown_item,
+            R.layout.spinner_item,
             voices.map { it.first },
         )
+        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
         spinnerVoice.adapter = adapter
         spinnerVoice.setSelection(DEFAULT_SID)
 
@@ -139,12 +160,14 @@ class MainActivity : AppCompatActivity() {
         })
 
         btnPaste.setOnClickListener { pasteFromClipboard() }
+        btnClear.setOnClickListener { etText.text.clear() }
+        btnDownload.setOnClickListener { downloadModel() }
         btnSpeak.setOnClickListener { speak(saveToFile = false) }
         btnSave.setOnClickListener { speak(saveToFile = true) }
 
         refreshState()
-        // No download button: the model fetches itself on first launch.
-        if (!isModelReady()) downloadModel()
+        // No auto-download: the user starts the model download manually
+        // from the button in the model card.
     }
 
     /** Paste the clipboard text at the cursor (or over the selection). */
@@ -179,12 +202,18 @@ class MainActivity : AppCompatActivity() {
         val ready = isModelReady()
         btnSpeak.isEnabled = ready && !busy
         btnSave.isEnabled = ready && !busy
+        // The download button lives only in the model card and only
+        // while the model is missing — never next to Play / Save.
+        btnDownload.visibility = if (ready) View.GONE else View.VISIBLE
+        btnDownload.isEnabled = !busy
+        btnDownload.text =
+            if (downloadFailed) "Retry download" else "Download model"
         tvModelStatus.text =
             if (ready) "Model ready" else "Model not downloaded"
         tvModelSub.text = if (ready) {
             "Supertonic 3 · English · ${voices[spinnerVoice.selectedItemPosition].first}"
         } else {
-            "Download once (~123 MB). After that, speech works fully offline."
+            "Download once (~129 MB). After that, speech works fully offline."
         }
         tvStatus.text = if (ready) {
             "Ready. Pick a voice and tap Play."
@@ -246,6 +275,7 @@ class MainActivity : AppCompatActivity() {
      *  and % + current file while extracting. */
     private fun downloadModel() {
         if (busy) return
+        downloadFailed = false
         setBusy(true)
         tvModelStatus.text = "Downloading model..."
         Thread {
@@ -264,6 +294,9 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Model ready", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
+                // Keep the partial file: a retry resumes from where
+                // the download stopped instead of starting over.
+                downloadFailed = true
                 runOnUiThread {
                     hideProgress()
                     setBusy(false)
@@ -274,20 +307,32 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** Downloads the model with resume: if a partial file is already
+     *  there, the server is asked for only the missing bytes (HTTP
+     *  Range), so a retry on a slow connection picks up where it
+     *  stopped instead of re-downloading ~129 MB from zero. */
     private fun downloadWithProgress(destFile: File) {
+        val already = if (destFile.exists()) destFile.length() else 0L
         val conn = URL(MODEL_URL).openConnection() as HttpURLConnection
         conn.connectTimeout = 30_000
-        conn.readTimeout = 30_000
+        conn.readTimeout = 120_000
+        if (already > 0) conn.setRequestProperty("Range", "bytes=$already-")
         conn.connect()
-        if (conn.responseCode !in 200..299) {
-            throw IllegalStateException("Download failed: HTTP ${conn.responseCode}")
+        val code = conn.responseCode
+        if (code == 416) return // already complete on disk
+        if (code !in 200..299) {
+            throw IllegalStateException("Download failed: HTTP $code")
         }
-        val total = conn.contentLengthLong // -1 if the server hides it
-        var downloaded: Long = 0
+        val resumed = code == HttpURLConnection.HTTP_PARTIAL // 206
+        if (!resumed && already > 0) destFile.delete() // server ignored Range: start fresh
+        val total = if (resumed) already + conn.contentLengthLong else conn.contentLengthLong
+        var downloaded = if (resumed) already else 0L
+        val sessionStart = downloaded
         val startedAt = System.currentTimeMillis()
         var lastUiUpdate = 0L
+        val verb = if (resumed) "Resuming" else "Downloading"
         conn.inputStream.use { input ->
-            FileOutputStream(destFile).use { output ->
+            FileOutputStream(destFile, resumed).use { output ->
                 val buf = ByteArray(8192)
                 var n = input.read(buf)
                 while (n != -1) {
@@ -297,17 +342,18 @@ class MainActivity : AppCompatActivity() {
                     if (now - lastUiUpdate >= 300) {
                         lastUiUpdate = now
                         val elapsedSec = ((now - startedAt) / 1000.0).coerceAtLeast(0.5)
-                        val speed = downloaded / elapsedSec
+                        val speed = (downloaded - sessionStart) / elapsedSec
                         val detail = if (total > 0) {
                             val percent = (downloaded * 100 / total).toInt()
-                            val etaSec = ((total - downloaded) / speed).toLong()
-                            showProgress(percent, "Downloading... $percent% · " +
+                            val etaSec = if (speed > 0) ((total - downloaded) / speed).toLong() else -1
+                            val eta = if (etaSec >= 0) " · ${formatEta(etaSec)}" else ""
+                            showProgress(percent, "$verb... $percent% · " +
                                 "${formatMb(downloaded)} / ${formatMb(total)} · " +
-                                "${formatSpeed(speed)} · ${formatEta(etaSec)}")
-                            "Downloading... $percent%"
+                                "${formatSpeed(speed)}$eta")
+                            "$verb... $percent%"
                         } else {
-                            showProgress(0, "Downloading... ${formatMb(downloaded)} · ${formatSpeed(speed)}")
-                            "Downloading..."
+                            showProgress(0, "$verb... ${formatMb(downloaded)} · ${formatSpeed(speed)}")
+                            "$verb..."
                         }
                         runOnUiThread { tvModelStatus.text = detail }
                     }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only needed once, to download the Supertonic model (~123 MB).
+    <!-- Only needed once, to download the Supertonic model (~129 MB).
          Speech itself runs 100% offline after that. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Only for Android 9 and older, where WAVs are written straight into

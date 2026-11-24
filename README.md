@@ -12,11 +12,13 @@ No account, no API key, no internet needed after the first model download.
 
 ## How it works
 
-1. First run: the app downloads the model itself (~123 MB) —
-   `sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2` from the
-   sherpa-onnx `tts-models` release — and extracts it on the phone.
+1. First run: tap **Download model** in the model card. The app downloads
+   `sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2` (~129 MB) from the
+   sherpa-onnx `tts-models` release and extracts it on the phone.
    Download shows live progress (% + MB + speed + time left); extraction
-   shows % + the file being extracted. There is no download button.
+   shows % + the file being extracted. Nothing downloads by itself, and
+   a failed download resumes from where it stopped when you tap Retry.
+   The button hides once the model is ready.
 2. After that, type text (or tap the small paste icon above the text
    box to paste from the clipboard), pick a voice and speed, tap **Play**
    (plays through the speaker) or **Save as WAV** (saves to the phone's
